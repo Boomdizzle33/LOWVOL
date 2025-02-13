@@ -16,7 +16,7 @@ import configparser
 def load_config():
     """Loads API keys and trading configurations from Streamlit secrets or a local file."""
     if "API" in st.secrets and "CONFIG" in st.secrets:
-        # Load from Streamlit Secrets (Cloud Deployment)
+        # ✅ Load from Streamlit Secrets (Cloud Deployment)
         settings = {
             "POLYGON_API_KEY": st.secrets["API"]["POLYGON_API_KEY"],
             "START_DATE": st.secrets["CONFIG"]["START_DATE"],
@@ -25,7 +25,7 @@ def load_config():
             "RISK_PER_TRADE": float(st.secrets["CONFIG"]["RISK_PER_TRADE"])
         }
     else:
-        # Load from Local Config File
+        # ✅ Load from Local Config File
         config = configparser.ConfigParser()
         config.read(".streamlit/secrets.toml")
         settings = {
@@ -140,28 +140,39 @@ if uploaded_file:
         st.success(f"Imported {len(watchlist)} tickers from TradingView.")
     else:
         st.error("Invalid CSV format. Ensure the column is named 'Ticker'.")
+        watchlist = []
 else:
     watchlist = []
 
 # Scan Stocks
-if st.button("Run Scanner") and watchlist:
-    with st.spinner("Scanning stocks..."):
-        candidates = scan_stocks(watchlist)
-        st.success(f"Found {len(candidates)} candidates.")
-        st.write(candidates)
+if st.button("Run Scanner"):
+    if watchlist:
+        with st.spinner("Scanning stocks..."):
+            candidates = scan_stocks(watchlist)
+            if candidates:
+                st.success(f"Found {len(candidates)} candidates.")
+                st.write(candidates)
+            else:
+                st.warning("No stocks matched the screening criteria.")
+    else:
+        st.error("Please upload a TradingView watchlist file before scanning.")
 
-# Backtest Candidates
-if st.button("Run Backtest") and watchlist:
-    with st.spinner("Running backtest..."):
-        trade_df, final_capital = backtest(candidates)
-        st.write(f"Final Capital: ${final_capital:,.2f}")
-        st.dataframe(trade_df)
+# Run Backtest
+if st.button("Run Backtest"):
+    if not watchlist:
+        st.error("No stocks available for backtesting. Please run the scanner first.")
+    else:
+        with st.spinner("Running backtest..."):
+            trade_df, final_capital = backtest(watchlist)
+            st.write(f"Final Capital: ${final_capital:,.2f}")
+            st.dataframe(trade_df)
 
-        trade_df["Cumulative PnL"] = trade_df["PnL"].cumsum()
-        plt.figure(figsize=(10, 5))
-        plt.plot(trade_df["Entry Date"], trade_df["Cumulative PnL"], label="Equity Curve")
-        plt.xlabel("Date")
-        plt.ylabel("Cumulative PnL ($)")
-        plt.title("Backtest Equity Curve")
-        plt.legend()
-        st.pyplot(plt)
+            trade_df["Cumulative PnL"] = trade_df["PnL"].cumsum()
+            plt.figure(figsize=(10, 5))
+            plt.plot(trade_df["Entry Date"], trade_df["Cumulative PnL"], label="Equity Curve")
+            plt.xlabel("Date")
+            plt.ylabel("Cumulative PnL ($)")
+            plt.title("Backtest Equity Curve")
+            plt.legend()
+            st.pyplot(plt)
+

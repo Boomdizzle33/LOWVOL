@@ -1,4 +1,3 @@
-
 import os
 import time
 import requests
@@ -132,15 +131,15 @@ st.title("Swing Trading Scanner & Backtester")
 market_condition = fetch_spy_market_condition(START_DATE, END_DATE)
 st.header(f"Market Breadth: {market_condition}")
 
-# Upload TradingView Watchlist
+# Upload TradingView Watchlist (Ticker Column Required)
 uploaded_file = st.file_uploader("Upload TradingView Watchlist CSV", type="csv")
 if uploaded_file:
     df_watchlist = pd.read_csv(uploaded_file)
-    if "Symbol" in df_watchlist.columns:
-        watchlist = df_watchlist["Symbol"].tolist()
-        st.success(f"Imported {len(watchlist)} symbols from TradingView.")
+    if "Ticker" in df_watchlist.columns:
+        watchlist = df_watchlist["Ticker"].tolist()
+        st.success(f"Imported {len(watchlist)} tickers from TradingView.")
     else:
-        st.error("Invalid CSV format. Ensure the column is named 'Symbol'.")
+        st.error("Invalid CSV format. Ensure the column is named 'Ticker'.")
 else:
     watchlist = []
 

@@ -1,3 +1,4 @@
+
 import os
 import time
 import requests
@@ -7,17 +8,44 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from scipy.stats import percentileofscore
+import configparser
 
 # -------------------------------
-# Configuration
+# Function: Load Configurations
 # -------------------------------
 
-POLYGON_API_KEY = "YOUR_POLYGON_API_KEY"  # Replace with your API key
-CSV_WATCHLIST = "watchlist.csv"  # File containing tickers to scan
-START_DATE = "2018-01-01"
-END_DATE = "2023-01-01"
-INITIAL_CAPITAL = 100000  # Starting capital for backtest
-RISK_PER_TRADE = 0.02  # 2% risk per trade
+def load_config():
+    """Loads API keys and trading configurations from Streamlit secrets or a local file."""
+    if "API" in st.secrets and "CONFIG" in st.secrets:
+        # Load from Streamlit Secrets (Cloud Deployment)
+        settings = {
+            "POLYGON_API_KEY": st.secrets["API"]["POLYGON_API_KEY"],
+            "START_DATE": st.secrets["CONFIG"]["START_DATE"],
+            "END_DATE": st.secrets["CONFIG"]["END_DATE"],
+            "INITIAL_CAPITAL": float(st.secrets["CONFIG"]["INITIAL_CAPITAL"]),
+            "RISK_PER_TRADE": float(st.secrets["CONFIG"]["RISK_PER_TRADE"])
+        }
+    else:
+        # Load from Local Config File
+        config = configparser.ConfigParser()
+        config.read(".streamlit/secrets.toml")
+        settings = {
+            "POLYGON_API_KEY": config.get("API", "POLYGON_API_KEY"),
+            "START_DATE": config.get("CONFIG", "START_DATE"),
+            "END_DATE": config.get("CONFIG", "END_DATE"),
+            "INITIAL_CAPITAL": float(config.get("CONFIG", "INITIAL_CAPITAL")),
+            "RISK_PER_TRADE": float(config.get("CONFIG", "RISK_PER_TRADE"))
+        }
+    
+    return settings
+
+# Load Configurations
+config = load_config()
+POLYGON_API_KEY = config["POLYGON_API_KEY"]
+START_DATE = config["START_DATE"]
+END_DATE = config["END_DATE"]
+INITIAL_CAPITAL = config["INITIAL_CAPITAL"]
+RISK_PER_TRADE = config["RISK_PER_TRADE"]
 
 # -------------------------------
 # Function: Fetch Historical Data
@@ -46,16 +74,10 @@ def fetch_spy_market_condition(start_date, end_date):
     """Fetches SPY market data to check if it's in a bullish or bearish trend."""
     spy_data = fetch_polygon_data("SPY", start_date, end_date)
     if spy_data is None or len(spy_data) < 50:
-        return "Unknown"  # If data is missing, return "Unknown"
+        return "Unknown"
 
-    # Calculate 50-day Moving Average
     spy_data["50SMA"] = spy_data["Close"].rolling(50).mean()
-
-    # Determine if SPY is in a bullish or bearish condition
-    if spy_data["Close"].iloc[-1] > spy_data["50SMA"].iloc[-1]:
-        return "Bullish ✅"
-    else:
-        return "Bearish ❌"
+    return "Bullish ✅" if spy_data["Close"].iloc[-1] > spy_data["50SMA"].iloc[-1] else "Bearish ❌"
 
 # -------------------------------
 # Function: Scanner for Ultra-Low Volatility
@@ -68,18 +90,14 @@ def scan_stocks(tickers):
     for ticker in tickers:
         df = fetch_polygon_data(ticker, START_DATE, END_DATE)
         if df is None or len(df) < 50:
-            continue  # Skip if insufficient data
+            continue
 
-        # Compute Bollinger Band Width (BBW) & ATR
         df["BBW"] = (df["High"].rolling(20).max() - df["Low"].rolling(20).min()) / df["Close"]
         df["ATR"] = df["High"].rolling(14).max() - df["Low"].rolling(14).min()
         df["AvgVol"] = df["Volume"].rolling(50).mean()
 
-        # Compute thresholds for BBW & ATR (10th percentile)
         bbw_threshold = np.percentile(df["BBW"].dropna(), 10)
         atr_threshold = np.percentile(df["ATR"].dropna(), 10)
-
-        # Require volume expansion on breakout day (1.5x the 50-day avg)
         volume_condition = df["Volume"].iloc[-1] > 1.5 * df["AvgVol"].iloc[-1]
 
         if df["BBW"].iloc[-1] < bbw_threshold and df["ATR"].iloc[-1] < atr_threshold and volume_condition:
@@ -88,56 +106,21 @@ def scan_stocks(tickers):
     return valid_stocks
 
 # -------------------------------
-# Function: Entry & Improved Stop-Loss Logic
+# Function: Entry & Stop-Loss Logic
 # -------------------------------
 
 def calculate_trade_parameters(df):
-    """Calculates entry price, stop-loss, and profit target with improved logic."""
+    """Calculates entry price, stop-loss, and profit target with ATR-based logic."""
     high_range = df["High"].rolling(20).max().iloc[-1]
     low_range = df["Low"].rolling(20).min().iloc[-1]
     atr = df["ATR"].iloc[-1]
 
-    entry_price = high_range * 0.98  # Slightly below breakout point
-    stop_loss = max(low_range - (atr * 1.5), df["Low"].rolling(5).min().iloc[-1])  # Improved stop-loss logic
+    entry_price = high_range * 0.98
+    stop_loss = max(low_range - (atr * 1.5), df["Low"].rolling(5).min().iloc[-1])
     risk_per_share = entry_price - stop_loss
     target_price = entry_price + (2 * risk_per_share)
 
     return entry_price, stop_loss, target_price
-
-# -------------------------------
-# Backtest Function
-# -------------------------------
-
-def backtest(tickers):
-    """Runs backtest on selected tickers."""
-    capital = INITIAL_CAPITAL
-    trade_log = []
-    
-    for ticker in tickers:
-        df = fetch_polygon_data(ticker, START_DATE, END_DATE)
-        if df is None or len(df) < 50:
-            continue
-
-        entry_price, stop_loss, target_price = calculate_trade_parameters(df)
-
-        for i in range(len(df) - 1):
-            if df["High"].iloc[i] >= entry_price:
-                shares = (capital * RISK_PER_TRADE) // (entry_price - stop_loss)
-                entry_date = df["date"].iloc[i]
-                stop_hit = df["Low"].iloc[i+1] <= stop_loss
-                target_hit = df["High"].iloc[i+1] >= target_price
-
-                exit_date = df["date"].iloc[i+3] if not (stop_hit or target_hit) else (
-                    df["date"].iloc[i+1] if stop_hit else df["date"].iloc[i+1]
-                )
-                exit_price = stop_loss if stop_hit else target_price if target_hit else df["Close"].iloc[i+3]
-                pnl = (exit_price - entry_price) * shares
-
-                trade_log.append([ticker, entry_date, exit_date, entry_price, exit_price, pnl])
-                capital += pnl
-    
-    trade_df = pd.DataFrame(trade_log, columns=["Ticker", "Entry Date", "Exit Date", "Entry Price", "Exit Price", "PnL"])
-    return trade_df, capital
 
 # -------------------------------
 # Streamlit UI
@@ -149,29 +132,32 @@ st.title("Swing Trading Scanner & Backtester")
 market_condition = fetch_spy_market_condition(START_DATE, END_DATE)
 st.header(f"Market Breadth: {market_condition}")
 
-# Load Watchlist
-if os.path.exists(CSV_WATCHLIST):
-    watchlist = pd.read_csv(CSV_WATCHLIST)["Symbol"].tolist()
-    st.write(f"Loaded {len(watchlist)} tickers.")
+# Upload TradingView Watchlist
+uploaded_file = st.file_uploader("Upload TradingView Watchlist CSV", type="csv")
+if uploaded_file:
+    df_watchlist = pd.read_csv(uploaded_file)
+    if "Symbol" in df_watchlist.columns:
+        watchlist = df_watchlist["Symbol"].tolist()
+        st.success(f"Imported {len(watchlist)} symbols from TradingView.")
+    else:
+        st.error("Invalid CSV format. Ensure the column is named 'Symbol'.")
 else:
-    st.error("Watchlist CSV not found.")
     watchlist = []
 
 # Scan Stocks
-if st.button("Run Scanner"):
+if st.button("Run Scanner") and watchlist:
     with st.spinner("Scanning stocks..."):
         candidates = scan_stocks(watchlist)
         st.success(f"Found {len(candidates)} candidates.")
         st.write(candidates)
 
 # Backtest Candidates
-if st.button("Run Backtest"):
+if st.button("Run Backtest") and watchlist:
     with st.spinner("Running backtest..."):
         trade_df, final_capital = backtest(candidates)
         st.write(f"Final Capital: ${final_capital:,.2f}")
         st.dataframe(trade_df)
 
-        # Plot Equity Curve
         trade_df["Cumulative PnL"] = trade_df["PnL"].cumsum()
         plt.figure(figsize=(10, 5))
         plt.plot(trade_df["Entry Date"], trade_df["Cumulative PnL"], label="Equity Curve")

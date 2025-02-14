@@ -5,6 +5,9 @@ import streamlit as st
 import json
 import os
 
+# Set page configuration (must be the first Streamlit command)
+st.set_page_config(page_title="RMV Swing Trading Scanner", layout="wide")
+
 # Retrieve API Key from Streamlit Secrets
 if "POLYGON_API_KEY" in st.secrets:
     API_KEY = st.secrets["POLYGON_API_KEY"]
@@ -78,7 +81,6 @@ def backtest_strategy(stock_list, start_date, end_date, account_size):
 
 # Streamlit UI
 def display_dashboard(stock_signals, account_size):
-    st.set_page_config(page_title="RMV Swing Trading Scanner", layout="wide")
     st.title("📈 RMV-Based Swing Trading Scanner")
     st.markdown("---")
 
@@ -87,19 +89,19 @@ def display_dashboard(stock_signals, account_size):
         entry_price = data.iloc[-1]["c"]
         stop_loss = entry_price - (data.iloc[-1]["rmv"])
         position_size, target_price = calculate_trade_parameters(entry_price, stop_loss, account_size=account_size)
-        st.write(f"Entry Price: {entry_price:.2f}, Stop Loss: {stop_loss:.2f}, Target: {target_price:.2f}")
+        st.write(f"**Entry Price:** {entry_price:.2f}, **Stop Loss:** {stop_loss:.2f}, **Target:** {target_price:.2f}")
 
 # Main Execution
 def main():
     st.title("RMV-Based Swing Trading Scanner")
     account_size = st.number_input("Enter Account Size", min_value=1000, max_value=1000000, value=100000, step=1000)
     uploaded_file = st.file_uploader("Upload TradingView CSV", type=["csv"])
-    
+
     if uploaded_file is not None:
         stock_list = pd.read_csv(uploaded_file)["Ticker"].tolist()
     else:
         stock_list = []
-    
+
     stock_signals = {}
     total_stocks = len(stock_list)
     progress_bar = st.progress(0)
@@ -119,9 +121,10 @@ def main():
     display_dashboard(stock_signals, account_size)
     st.markdown("---")
     st.subheader("📊 Backtesting Results")
-    
+
     backtest_results = backtest_strategy(stock_list, "2024-01-01", "2025-02-12", account_size)
     st.dataframe(backtest_results)
 
 if __name__ == "__main__":
     main()
+

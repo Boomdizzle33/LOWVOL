@@ -56,9 +56,11 @@ def backtest_strategy(stock_list, start_date, end_date, account_size):
     results = []
     st.subheader("🔍 Scanning Stocks...")
     progress_bar = st.progress(0)
-total_stocks = len(stock_list)
+    total_stocks = len(stock_list)
+
     for idx, stock in enumerate(stock_list):
         data = fetch_stock_data(stock, start_date, end_date)
+        progress_bar.progress((idx + 1) / total_stocks)
         if data is not None:
             data = calculate_rmv(data)
             data = detect_trade_signals(data)
@@ -70,14 +72,17 @@ total_stocks = len(stock_list)
                     exit_price = target_price if data.iloc[i+1]["h"] >= target_price else (stop_loss if data.iloc[i+1]["l"] <= stop_loss else data.iloc[i+1]["c"])
                     profit = (exit_price - entry_price) * position_size
                     results.append({"Stock": stock, "Entry": entry_price, "Exit": exit_price, "Profit": profit})
-        return pd.DataFrame(results)
+
+    progress_bar.empty()
+    return pd.DataFrame(results)
 
 # Streamlit UI
 def display_dashboard(stock_signals, account_size):
     st.set_page_config(page_title="RMV Swing Trading Scanner", layout="wide")
     st.title("📈 RMV-Based Swing Trading Scanner")
     st.markdown("---")
-        for stock, data in stock_signals.items():
+
+    for stock, data in stock_signals.items():
         st.subheader(stock)
         entry_price = data.iloc[-1]["c"]
         stop_loss = entry_price - (data.iloc[-1]["rmv"])
@@ -96,7 +101,10 @@ def main():
         stock_list = []
     
     stock_signals = {}
-    for stock in stock_list:
+    total_stocks = len(stock_list)
+    progress_bar = st.progress(0)
+
+    for idx, stock in enumerate(stock_list):
         data = fetch_stock_data(stock, "2024-01-01", "2025-02-12")
         progress_bar.progress((idx + 1) / total_stocks)
         print(f"Processing data for {stock}")
@@ -106,12 +114,13 @@ def main():
             print(f"Breakout detected for {stock}")
             if data["breakout"].iloc[-1]:
                 stock_signals[stock] = data
-    
-    display_dashboard(stock_signals, account_size)
+
     progress_bar.empty()
+    display_dashboard(stock_signals, account_size)
     st.markdown("---")
     st.subheader("📊 Backtesting Results")
-        backtest_results = backtest_strategy(stock_list, "2024-01-01", "2025-02-12", account_size)
+    
+    backtest_results = backtest_strategy(stock_list, "2024-01-01", "2025-02-12", account_size)
     st.dataframe(backtest_results)
 
 if __name__ == "__main__":

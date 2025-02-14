@@ -23,21 +23,15 @@ def fetch_stock_data(ticker, start_date, end_date):
         st.error("API Key is missing! Please set it in Streamlit secrets.")
         return None
     
-    print(f"Fetching data for {ticker} from {start_date} to {end_date}")
     url = BASE_URL.format(ticker=ticker, start_date=start_date, end_date=end_date)
     response = requests.get(url)
-    print(f"Response status: {response.status_code}")
     
     if response.status_code == 200:
         data = response.json()
-        print(f"API Response for {ticker}: {data}")  # Debugging line
         if "results" in data and len(data["results"]) > 0:
             return pd.DataFrame(data["results"])
         else:
-            print(f"No data found for {ticker}")  # Debugging line
             return None
-    else:
-        st.error(f"Error fetching data for {ticker}: {response.json()}")
     return None
 
 # Calculate RMV (Relative Measured Volatility)
@@ -52,8 +46,6 @@ def detect_trade_signals(data):
     data["resistance"] = data["h"].rolling(window=5).max()
     data["pre_breakout"] = (data["c"] >= data["resistance"] * 0.98) & (data["c"] < data["resistance"]) & data["volatility_contraction"]
     data["breakout"] = (data["c"] > data["resistance"]) & data["volatility_contraction"]
-    
-    print(f"Last 5 rows for breakout check:\n{data.tail()}")  # Debugging line
     return data
 
 # Risk Management & Position Sizing
@@ -66,18 +58,17 @@ def calculate_trade_parameters(entry_price, stop_loss, risk_per_trade=0.01, acco
 # Backtesting Function
 def backtest_strategy(stock_list, start_date, end_date, account_size):
     results = []
-    st.subheader("🔍 Scanning Stocks...")
     progress_bar = st.progress(0)
     total_stocks = len(stock_list)
     
     for idx, stock in enumerate(stock_list):
-        print(f"Processing stock: {stock}")  # Debugging line
         data = fetch_stock_data(stock, start_date, end_date)
         progress_bar.progress((idx + 1) / total_stocks)
+        
         if data is not None:
-            print(f"Data successfully fetched for {stock}")  # Debugging line
             data = calculate_rmv(data)
             data = detect_trade_signals(data)
+            
             for i in range(2, len(data)):
                 if data.iloc[i]["breakout"]:
                     entry_price = data.iloc[i]["c"]
@@ -102,7 +93,7 @@ def display_dashboard(stock_signals, account_size):
     for stock, data in stock_signals.items():
         st.subheader(stock)
         entry_price = data.iloc[-1]["c"]
-        stop_loss = entry_price - (data.iloc[-1]["rmv"])
+        stop_loss = entry_price - data.iloc[-1]["rmv"]
         position_size, target_price = calculate_trade_parameters(entry_price, stop_loss, account_size=account_size)
         st.write(f"Entry Price: {entry_price:.2f}, Stop Loss: {stop_loss:.2f}, Target: {target_price:.2f}")
 
@@ -122,22 +113,21 @@ def main():
     progress_bar = st.progress(0)
 
     for idx, stock in enumerate(stock_list):
-        print(f"Processing stock: {stock}")  # Debugging line
         data = fetch_stock_data(stock, "2024-01-01", "2025-02-12")
         progress_bar.progress((idx + 1) / total_stocks)
+        
         if data is not None:
             data = calculate_rmv(data)
             data = detect_trade_signals(data)
-            print(f"Breakout detected for {stock}: {data['breakout'].iloc[-1]}")  # Debugging line
+            
             if data["breakout"].iloc[-1]:
-                print(f"Breakout detected for {stock}")  # Debugging line
                 stock_signals[stock] = data
     
     progress_bar.empty()
     display_dashboard(stock_signals, account_size)
+    
     st.markdown("---")
     st.subheader("📊 Backtesting Results")
-    
     backtest_results = backtest_strategy(stock_list, "2024-01-01", "2025-02-12", account_size)
     st.dataframe(backtest_results)
 

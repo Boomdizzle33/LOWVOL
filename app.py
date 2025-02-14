@@ -3,9 +3,10 @@ import numpy as np
 import requests
 import streamlit as st
 import json
+import os
 
-# Polygon.io API Key
-API_KEY = "YOUR_POLYGON_API_KEY"
+# Retrieve API Key from Streamlit Secrets
+API_KEY = st.secrets["POLYGON_API_KEY"]
 BASE_URL = "https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?apiKey=" + API_KEY
 
 # Fetch Historical Data from Polygon.io
@@ -18,6 +19,8 @@ def fetch_stock_data(ticker, start_date, end_date):
         data = response.json()
         print(f"Fetched {len(data['results'])} records for {ticker}")
         return pd.DataFrame(data["results"])
+    else:
+        print(f"Error fetching data for {ticker}: {response.json()}")
     return None
 
 # Calculate RMV (Relative Measured Volatility)

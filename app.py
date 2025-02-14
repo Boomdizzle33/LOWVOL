@@ -8,15 +8,6 @@ import json
 API_KEY = "YOUR_POLYGON_API_KEY"
 BASE_URL = "https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?apiKey=" + API_KEY
 
-# Load TradingView Exported Stock List
-def load_stock_list(file_path):
-    if file_path.endswith(".csv"):
-        return pd.read_csv(file_path)["symbol"].tolist()
-    elif file_path.endswith(".json"):
-        with open(file_path, "r") as f:
-            return json.load(f)["symbols"]
-    return []
-
 # Fetch Historical Data from Polygon.io
 def fetch_stock_data(ticker, start_date, end_date):
     print(f"Fetching data for {ticker} from {start_date} to {end_date}")
@@ -37,16 +28,9 @@ def calculate_rmv(data, window=20):
 
 # Identify Volatility Contraction and Breakout
 def detect_trade_signals(data):
-    # Identify tight volatility contraction (pre-breakout condition)
     data["volatility_contraction"] = (data["rmv"] < data["rmv"].shift(1)) & (data["rmv"].shift(1) < data["rmv"].shift(2))
-    
-    # Identify resistance level (previous highs within the last 5 days)
     data["resistance"] = data["h"].rolling(window=5).max()
-    
-    # Pre-breakout entry condition: price near resistance but not yet breaking out
     data["pre_breakout"] = (data["c"] >= data["resistance"] * 0.98) & (data["c"] < data["resistance"]) & data["volatility_contraction"]
-    
-    # Standard breakout condition
     data["breakout"] = (data["c"] > data["resistance"]) & data["volatility_contraction"]
     return data
 
@@ -70,8 +54,6 @@ def backtest_strategy(stock_list, start_date, end_date, account_size):
                     entry_price = data.iloc[i]["c"]
                     stop_loss = entry_price - data.iloc[i]["rmv"]
                     position_size, target_price = calculate_trade_parameters(entry_price, stop_loss, account_size=account_size)
-                    
-                    # Simulate exit
                     exit_price = target_price if data.iloc[i+1]["h"] >= target_price else (stop_loss if data.iloc[i+1]["l"] <= stop_loss else data.iloc[i+1]["c"])
                     profit = (exit_price - entry_price) * position_size
                     results.append({"Stock": stock, "Entry": entry_price, "Exit": exit_price, "Profit": profit})
@@ -89,10 +71,16 @@ def display_dashboard(stock_signals, account_size):
 
 # Main Execution
 def main():
+    st.title("RMV-Based Swing Trading Scanner")
     account_size = st.number_input("Enter Account Size", min_value=1000, max_value=1000000, value=100000, step=1000)
-    stock_list = load_stock_list("tradingview_export.csv")
-    stock_signals = {}
+    uploaded_file = st.file_uploader("Upload TradingView CSV", type=["csv"])
     
+    if uploaded_file is not None:
+        stock_list = pd.read_csv(uploaded_file)["symbol"].tolist()
+    else:
+        stock_list = []
+    
+    stock_signals = {}
     for stock in stock_list:
         data = fetch_stock_data(stock, "2024-01-01", "2025-02-12")
         print(f"Processing data for {stock}")
@@ -100,17 +88,14 @@ def main():
             data = calculate_rmv(data)
             data = detect_trade_signals(data)
             print(f"Breakout detected for {stock}")
-            if data["breakout"].iloc[-1]:  # Check if latest candle is a breakout
+            if data["breakout"].iloc[-1]:
                 stock_signals[stock] = data
     
     display_dashboard(stock_signals, account_size)
-    
-    # Run Backtest
     st.subheader("Backtesting Results")
     backtest_results = backtest_strategy(stock_list, "2024-01-01", "2025-02-12", account_size)
     st.dataframe(backtest_results)
 
 if __name__ == "__main__":
     main()
-
 

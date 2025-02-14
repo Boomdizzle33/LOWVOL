@@ -76,7 +76,7 @@ def main():
     uploaded_file = st.file_uploader("Upload TradingView CSV", type=["csv"])
     
     if uploaded_file is not None:
-        stock_list = pd.read_csv(uploaded_file)["symbol"].tolist()
+        stock_list = pd.read_csv(uploaded_file)["Ticker"].tolist()
     else:
         stock_list = []
     

@@ -20,17 +20,24 @@ BASE_URL = "https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_da
 # Fetch Historical Data from Polygon.io
 def fetch_stock_data(ticker, start_date, end_date):
     if API_KEY is None:
+        st.error("API Key is missing! Please set it in Streamlit secrets.")
         return None
+    
     print(f"Fetching data for {ticker} from {start_date} to {end_date}")
     url = BASE_URL.format(ticker=ticker, start_date=start_date, end_date=end_date)
     response = requests.get(url)
     print(f"Response status: {response.status_code}")
+    
     if response.status_code == 200:
         data = response.json()
-        print(f"Fetched {len(data['results'])} records for {ticker}")
-        return pd.DataFrame(data["results"])
+        print(f"API Response for {ticker}: {data}")  # Debugging line
+        if "results" in data and len(data["results"]) > 0:
+            return pd.DataFrame(data["results"])
+        else:
+            print(f"No data found for {ticker}")  # Debugging line
+            return None
     else:
-        print(f"Error fetching data for {ticker}: {response.json()}")
+        st.error(f"Error fetching data for {ticker}: {response.json()}")
     return None
 
 # Calculate RMV (Relative Measured Volatility)
@@ -45,6 +52,8 @@ def detect_trade_signals(data):
     data["resistance"] = data["h"].rolling(window=5).max()
     data["pre_breakout"] = (data["c"] >= data["resistance"] * 0.98) & (data["c"] < data["resistance"]) & data["volatility_contraction"]
     data["breakout"] = (data["c"] > data["resistance"]) & data["volatility_contraction"]
+    
+    print(f"Last 5 rows for breakout check:\n{data.tail()}")  # Debugging line
     return data
 
 # Risk Management & Position Sizing
@@ -60,11 +69,13 @@ def backtest_strategy(stock_list, start_date, end_date, account_size):
     st.subheader("🔍 Scanning Stocks...")
     progress_bar = st.progress(0)
     total_stocks = len(stock_list)
-
+    
     for idx, stock in enumerate(stock_list):
+        print(f"Processing stock: {stock}")  # Debugging line
         data = fetch_stock_data(stock, start_date, end_date)
         progress_bar.progress((idx + 1) / total_stocks)
         if data is not None:
+            print(f"Data successfully fetched for {stock}")  # Debugging line
             data = calculate_rmv(data)
             data = detect_trade_signals(data)
             for i in range(2, len(data)):
@@ -75,7 +86,7 @@ def backtest_strategy(stock_list, start_date, end_date, account_size):
                     exit_price = target_price if data.iloc[i+1]["h"] >= target_price else (stop_loss if data.iloc[i+1]["l"] <= stop_loss else data.iloc[i+1]["c"])
                     profit = (exit_price - entry_price) * position_size
                     results.append({"Stock": stock, "Entry": entry_price, "Exit": exit_price, "Profit": profit})
-
+    
     progress_bar.empty()
     return pd.DataFrame(results)
 
@@ -83,48 +94,52 @@ def backtest_strategy(stock_list, start_date, end_date, account_size):
 def display_dashboard(stock_signals, account_size):
     st.title("📈 RMV-Based Swing Trading Scanner")
     st.markdown("---")
-
+    
+    if not stock_signals:
+        st.warning("No stocks met the breakout criteria.")
+        return
+    
     for stock, data in stock_signals.items():
         st.subheader(stock)
         entry_price = data.iloc[-1]["c"]
         stop_loss = entry_price - (data.iloc[-1]["rmv"])
         position_size, target_price = calculate_trade_parameters(entry_price, stop_loss, account_size=account_size)
-        st.write(f"**Entry Price:** {entry_price:.2f}, **Stop Loss:** {stop_loss:.2f}, **Target:** {target_price:.2f}")
+        st.write(f"Entry Price: {entry_price:.2f}, Stop Loss: {stop_loss:.2f}, Target: {target_price:.2f}")
 
 # Main Execution
 def main():
     st.title("RMV-Based Swing Trading Scanner")
     account_size = st.number_input("Enter Account Size", min_value=1000, max_value=1000000, value=100000, step=1000)
     uploaded_file = st.file_uploader("Upload TradingView CSV", type=["csv"])
-
+    
     if uploaded_file is not None:
         stock_list = pd.read_csv(uploaded_file)["Ticker"].tolist()
     else:
         stock_list = []
-
+    
     stock_signals = {}
     total_stocks = len(stock_list)
     progress_bar = st.progress(0)
 
     for idx, stock in enumerate(stock_list):
+        print(f"Processing stock: {stock}")  # Debugging line
         data = fetch_stock_data(stock, "2024-01-01", "2025-02-12")
         progress_bar.progress((idx + 1) / total_stocks)
-        print(f"Processing data for {stock}")
         if data is not None:
             data = calculate_rmv(data)
             data = detect_trade_signals(data)
-            print(f"Breakout detected for {stock}")
+            print(f"Breakout detected for {stock}: {data['breakout'].iloc[-1]}")  # Debugging line
             if data["breakout"].iloc[-1]:
+                print(f"Breakout detected for {stock}")  # Debugging line
                 stock_signals[stock] = data
-
+    
     progress_bar.empty()
     display_dashboard(stock_signals, account_size)
     st.markdown("---")
     st.subheader("📊 Backtesting Results")
-
+    
     backtest_results = backtest_strategy(stock_list, "2024-01-01", "2025-02-12", account_size)
     st.dataframe(backtest_results)
 
 if __name__ == "__main__":
     main()
-
